@@ -1,136 +1,115 @@
-import { ref, computed } from 'vue'
+// src/stores/auth.ts
 import { defineStore } from 'pinia'
-import { useRouter } from 'vue-router' // Import if you need router inside the store
+import { ref } from 'vue'
+import axios from 'axios'
+import router from '../router'
 
-// Optional: Define user data structure
 interface User {
-  id: string | number;
-  username: string;
-  // Add other relevant user fields
-}
-
-// Optional: Define login credentials structure
-interface LoginCredentials {
-  username: string;
-  password?: string; // Password might not be needed in the store state itself
-  // Add other credentials like verification code if needed
+  username: string
+  token: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  // --- State ---
-  // Initialize token from localStorage for persistence
-  const token = ref<string | null>(localStorage.getItem('authToken'));
-  const user = ref<User | null>(null); // Store user info after login
-  const loading = ref<boolean>(false); // Track loading state during login
-  const error = ref<string | null>(null); // Store login error messages
+  const user = ref<User | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  // --- Getters (Computed) ---
-  const isAuthenticated = computed<boolean>(() => !!token.value);
+  // 从环境变量获取API基础URL
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 
-  // --- Actions ---
-  async function login(credentials: LoginCredentials): Promise<void> {
-    loading.value = true;
-    error.value = null;
-    console.log('Attempting login with:', credentials); // Debug log
-
+  // 登录方法(含接口)
+  const login = async (username: string, password: string) => {
+    loading.value = true
+    error.value = null
+    
     try {
-      // --- !!! REPLACE WITH ACTUAL API CALL !!! ---
-      // Example: Using fetch
-      // const response = await fetch('/api/auth/login', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(credentials)
-      // });
-      // if (!response.ok) {
-      //    const errorData = await response.json();
-      //    throw new Error(errorData.message || 'Login failed');
-      // }
-      // const data = await response.json(); // { token: '...', user: {...} }
+      const response = await axios.post(`${API_BASE_URL}/auth/login`, {
+        username,
+        password
+      })
 
-      // --- MOCK API CALL (REMOVE IN REAL APP) ---
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
-      if (credentials.username === 'admin' && credentials.password === 'password123') {
-        // Mock successful login
-        const mockToken = 'fake-jwt-token-' + Date.now();
-        const mockUser: User = { id: 1, username: credentials.username };
-
-        // Update state
-        token.value = mockToken;
-        user.value = mockUser;
-
-        // Persist token
-        localStorage.setItem('authToken', mockToken);
-
-        console.log('Login successful, token:', mockToken); // Debug log
-
-        // --- Navigation after successful login ---
-        // Option 1: Handled by component or router guard (preferred)
-        // Option 2: Navigate from store (requires injecting router or passing it)
-        // const router = useRouter(); // Only works in setup(), not ideal here
-        // router.push('/dashboard'); // Use if router is injected/passed
-
-      } else {
-        // Mock failed login
-        throw new Error('用户名或密码错误'); // Incorrect username/password
+      if (response.data?.token) {
+        user.value = {
+          username,
+          token: response.data.token
+        }
+        // 存储token到localStorage
+        localStorage.setItem('authToken', response.data.token)
+        // 设置axios默认授权头
+        axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`
+        return true
       }
-      // --- END MOCK API CALL ---
-
-    } catch (err: any) {
-      console.error('Login error:', err); // Debug log
-      error.value = err.message || '登录时发生未知错误'; // Set error message
-      // Ensure token/user are cleared on error
-      token.value = null;
-      user.value = null;
-      localStorage.removeItem('authToken');
-      throw err; // Re-throw error so the component can know login failed
+    } catch (err) {
+      handleAuthError(err)
+      throw err
     } finally {
-      loading.value = false; // Ensure loading is always turned off
+      loading.value = false
     }
   }
 
-  function logout(): void {
-    console.log('Logging out'); // Debug log
-    token.value = null;
-    user.value = null;
-    error.value = null; // Clear any previous errors
-    localStorage.removeItem('authToken');
-    // --- Navigation after logout ---
-    // Usually handled by a router guard or manually in the component triggering logout
-    // Example: router.push('/login');
+  // 登出方法(含接口)
+  const logout = async () => {
+    try {
+      if (user.value?.token) {
+        await axios.post(`${API_BASE_URL}/auth/logout`, null, {
+          headers: {
+            Authorization: `Bearer ${user.value.token}`
+          }
+        })
+      }
+    } catch (err) {
+      console.error('Logout error:', err)
+    } finally {
+      clearAuthState()
+      router.push({ name: 'Login' })
+    }
   }
 
-  // Optional: Action to check auth status on app load (e.g., fetch user profile if token exists)
-  async function checkAuthStatus() {
-    if (token.value && !user.value) {
-      // If we have a token but no user data, try to fetch user profile
+  // 检查认证状态
+  const checkAuth = async () => {
+    const token = localStorage.getItem('authToken')
+    if (token) {
       try {
-        // --- !!! REPLACE WITH ACTUAL API CALL to /api/auth/me or similar !!! ---
-        console.log('Checking auth status, fetching user profile...');
-        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
-        // Assume API returns user based on token in Authorization header
-        const mockUser: User = { id: 1, username: 'admin' }; // Mock response
-        user.value = mockUser;
-        console.log('User profile fetched:', user.value);
+        const response = await axios.get(`${API_BASE_URL}/auth/validate`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        })
+
+        if (response.data?.valid) {
+          user.value = {
+            username: response.data.username,
+            token
+          }
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+          return true
+        }
       } catch (err) {
-        console.error('Failed to fetch user profile:', err);
-        // Token might be invalid/expired, log out
-        logout();
+        console.error('Token validation error:', err)
+        clearAuthState()
       }
     }
+    return false
   }
 
-  // 初始化时检查认证状态
-  checkAuthStatus()
-
-  // Return state and actions
-  return {
-    token,
-    user,
-    loading,
-    error,
-    isAuthenticated,
-    login,
-    logout,
-    checkAuthStatus // Expose if needed
+  // 辅助方法 - 清除认证状态
+  const clearAuthState = () => {
+    user.value = null
+    localStorage.removeItem('authToken')
+    delete axios.defaults.headers.common['Authorization']
   }
+
+  // 辅助方法 - 处理认证错误
+  const handleAuthError = (err: unknown) => {
+    if (axios.isAxiosError(err)) {
+      error.value = err.response?.data?.message || 
+                    err.response?.data?.error || 
+                    '登录失败，请检查用户名和密码'
+    } else {
+      error.value = '登录过程中发生未知错误'
+      console.error('Auth error:', err)
+    }
+  }
+
+  return { user, loading, error, login, logout, checkAuth }
 })

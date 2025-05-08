@@ -1,25 +1,28 @@
 <script setup lang="ts">
-import { useAuthStore } from '../stores/auth';
-import { useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/auth'
+import { onMounted } from 'vue'
 
-const authStore = useAuthStore();
-const router = useRouter();
+const authStore = useAuthStore()
 
 const handleLogout = async () => {
   try {
-    await authStore.logout();
-    router.push({ name: 'Login' });
+    await authStore.logout()
   } catch (error) {
-    console.error('Logout failed:', error);
+    console.error('Logout failed:', error)
   }
-};
+}
+
+// 组件加载时检查认证状态
+onMounted(async () => {
+  await authStore.checkAuth()
+})
 </script>
 
 <template>
   <div class="dashboard-container">
     <h1>Dashboard</h1>
     <div class="welcome-message">
-      Welcome to your dashboard!
+      Welcome, {{ authStore.user?.username }}!
     </div>
     <button @click="handleLogout" class="logout-button">Logout</button>
   </div>
@@ -44,6 +47,7 @@ const handleLogout = async () => {
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  transition: background-color 0.3s;
 }
 
 .logout-button:hover {

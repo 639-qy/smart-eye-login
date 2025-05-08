@@ -10,7 +10,7 @@ const authStore = useAuthStore();
 onMounted(() => {
   // Try to fetch user data if a token exists in localStorage
   // This helps maintain the session across page refreshes
-  authStore.checkAuthStatus();
+  authStore.checkAuth();
 });
 
 </script>
